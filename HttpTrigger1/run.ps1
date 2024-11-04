@@ -6,62 +6,79 @@ param($Request, $TriggerMetadata)
 # Write to the Azure Functions log stream.
 Write-Host "PowerShell HTTP trigger function processed a request."
 
-# Read the XML content from the request body
-$xmlContent = $Request.Body.ReadAsStringAsync().Result
+try {
+    # Read the JSON content from the request body
+    $jsonContent = $Request.Body.ReadAsStringAsync().Result
 
-# Load the XML content into an XML document
-[xml]$xmlDoc = $xmlContent
+    # Convert the JSON content to a PS object
+    $requestObject = $jsonContent | ConvertFrom-Json
 
-# Define the target endpoint URL - endpoint to be defined by LM
-$targetUrl = "https://example.com/endpoint"
+    # Validate the input JSON
+    if (-not $requestObject.RunID -or -not $requestObject.BrandID -or -not $requestObject.CompanyID) {
+        throw "Invalid input JSON: Missing required fields."
+    }
 
-# Send the XML content to the target endpoint
-$response = Invoke-RestMethod -Uri $targetUrl -Method Post -Body $xmlContent -ContentType "application/xml"
+    # Define the target endpoint URL - endpoint to be defined by LM
+    $targetUrl = "ppouatapi.autodecisioningplatform.com/api/v2/DecisionEngine/Run"
 
-# Log the response from the target endpoint
-Write-Host "Response from target endpoint: $response"
+    # Send the JSON content to the target endpoint
+    $response = Invoke-RestMethod -Uri $targetUrl -Method Post -Body $jsonContent -ContentType "application/json"
 
-# Convert the JSON response to PS object
-$responseObject = $response | ConvertFrom-Json
+    # Log the response from the target endpoint
+    Write-Host "Response from target endpoint: $response"
 
-# Create a new XML document with only the required fields
-$filteredXmlDoc = New-Object System.Xml.XmlDocument
-$root = $filteredXmlDoc.CreateElement("response")
+    # Convert the JSON response to PS object
+    $responseObject = $response | ConvertFrom-Json
 
-# Fields to include from the original XML, The rest should be removed
-$originalFields = @(
-    "RunID", "CaseID", "CaseRef", "SubCaseID", "SubCaseRef", "CategoryID"
-)
-
-# Fields to include from the JSON response from ADP
+# Fields to include from the original request and the new field from the JSON response
 $jsonFields = @(
-    "CallGUID", "CategoryName", "CaseRunSeq", "ResultID", "ResultDesc",
-    "DateBegin", "DateEnd", "CallDurationTotal", "CallDurationInt", "CallDurationExt"
+    "RunID", "BrandID", "APIKey", "CompanyID", "DateSubmitted", "CategoryID",
+    "CaseID", "CaseRef", "SubCaseID", "SubCaseRef", "Configs", "Properties"
 )
 
-# Append original fields from the request XML to the converted XML document
-foreach ($field in $originalFields) {
-    $node = $xmlDoc.SelectSingleNode("//$field")
-    if ($node) {
-        $importedNode = $filteredXmlDoc.ImportNode($node, $true)
-        $root.AppendChild($importedNode) | Out-Null
+# Create a new JSON object to hold the filtered data
+$filteredJsonObject = @{}
+
+# Function to add fields to the filtered JSON object
+function Add-Fields {
+    param ($sourceObject, $targetObject, $fields)
+    foreach ($field in $fields) {
+        if ($field -contains ".") {
+            $parts = $field -split "\."
+            $currentField = $parts[0]
+            $remainingField = $parts[1..($parts.Length - 1)] -join "."
+            if ($sourceObject.PSObject.Properties.Name -contains $currentField) {
+                if (-not $targetObject[$currentField]) {
+                    $targetObject[$currentField] = @{}
+                }
+                Add-Fields -sourceObject $sourceObject.$currentField -targetObject $targetObject[$currentField] -fields @($remainingField)
+            }
+        } else {
+            if ($sourceObject.PSObject.Properties.Name -contains $field) {
+                $targetObject[$field] = $sourceObject.$field
+            }
+        }
     }
 }
 
-# Append required fields from the JSON response to the converted XML document
-foreach ($field in $jsonFields) {
-    $newFieldElement = $filteredXmlDoc.CreateElement($field)
-    $newFieldElement.InnerText = $responseObject.$field
-    $root.AppendChild($newFieldElement) | Out-Null
+    # Append required fields from the original request to the new JSON object
+    Add-Fields -sourceObject $requestObject -targetObject $filteredJsonObject -fields $jsonFields
+
+    # Append the new field from the JSON response
+    $filteredJsonObject["ResultID"] = $responseObject.ResultID
+
+    # Convert the JSON object to a string
+    $filteredJsonContent = $filteredJsonObject | ConvertTo-Json
+
+    # Return the JSON content as the response
+    $Response = [HttpResponseMessage]::new([HttpStatusCode]::OK)
+    $Response.Content = [System.Net.Http.StringContent]::new($filteredJsonContent, [System.Text.Encoding]::UTF8, "application/json")
+    $Response
+
+    Write-Host "Response has been successfully sent to the client."
+} catch {
+    Write-Host "An error occurred: $_"
+    $Response = [HttpResponseMessage]::new([HttpStatusCode]::InternalServerError)
+    $Response.Content = [System.Net.Http.StringContent]::new("An error occurred while processing the request.", [System.Text.Encoding]::UTF8, "text/plain")
+    $Response
 }
-
-# Finalize the XML document
-$filteredXmlDoc.AppendChild($root) | Out-Null
-
-# Convert the XML document to a string
-$filteredXmlContent = $filteredXmlDoc.OuterXml
-
-# Return the XML content as the response
-$filteredXmlContent
-
-Write-Host "Response has been successfully sent to the client."
