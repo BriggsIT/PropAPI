@@ -33,7 +33,8 @@ try {
 # Fields to include from the original request and the new field from the JSON response
 $jsonFields = @(
     "RunID", "BrandID", "APIKey", "CompanyID", "DateSubmitted", "CategoryID",
-    "CaseID", "CaseRef", "SubCaseID", "SubCaseRef", "Configs", "Properties"
+    "Case.ID", "Case.Ref", "Case.Index", "Case.Properties", "Case.SubCases",
+    "Configs"
 )
 
 # Create a new JSON object to hold the filtered data
