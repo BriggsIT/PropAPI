@@ -8,7 +8,7 @@ Write-Host "PowerShell HTTP trigger function processed a request."
 
 try {
     # Read the JSON content from the request body
-    $jsonContent = $Request.Body.ReadAsStringAsync().Result
+    $jsonContent = $Request.Body #.ReadAsStringAsync().Result
 
     # Convert the JSON content to a PS object
     $requestObject = $jsonContent | ConvertFrom-Json
