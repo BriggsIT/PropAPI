@@ -72,6 +72,7 @@ try {
     $Response
     
     Write-Host "Response has been successfully sent to the client."
+    write-output $Request.Body
 } catch {
     Write-Host "An error occurred: $_"
     $Response = [HttpResponseMessage]::new([HttpStatusCode]::InternalServerError)
