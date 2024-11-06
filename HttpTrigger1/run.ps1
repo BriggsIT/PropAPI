@@ -30,52 +30,47 @@ try {
     # Convert the JSON response to PS object
     $responseObject = $response | ConvertFrom-Json
 
-# Fields to include from the original request and the new field from the JSON response
-$jsonFields = @(
-    "RunID", "BrandID", "APIKey", "CompanyID", "DateSubmitted", "CategoryID",
-    "Case.ID", "Case.Ref", "Case.Index", "Case.Properties", "Case.SubCases",
-    "Configs"
-)
-
-# Create a new JSON object to hold the filtered data
-$filteredJsonObject = @{}
-
-# Function to add fields to the filtered JSON object
-function Add-Fields {
-    param ($sourceObject, $targetObject, $fields)
-    foreach ($field in $fields) {
-        if ($field -contains ".") {
-            $parts = $field -split "\."
-            $currentField = $parts[0]
-            $remainingField = $parts[1..($parts.Length - 1)] -join "."
-            if ($sourceObject.PSObject.Properties.Name -contains $currentField) {
-                if (-not $targetObject[$currentField]) {
-                    $targetObject[$currentField] = @{}
+    $jsonFields = @(
+        "RunID", "BrandID", "APIKey", "CompanyID", "DateSubmitted", "CategoryID",
+        "CaseID", "CaseRef", "Properties", "SubCaseID", "SubCaseRef", "Configs"
+    )
+    
+    # Function to add fields to the filtered JSON object
+    function Add-Fields {
+        param ($sourceObject, $targetObject, $fields)
+        foreach ($field in $fields) {
+            if ($field -contains ".") {
+                $parts = $field -split "\."
+                $currentField = $parts[0]
+                $remainingField = $parts[1..($parts.Length - 1)] -join "."
+                if ($sourceObject.PSObject.Properties.Name -contains $currentField) {
+                    if (-not $targetObject[$currentField]) {
+                        $targetObject[$currentField] = @{ }
+                    }
+                    Add-Fields -sourceObject $sourceObject.$currentField -targetObject $targetObject[$currentField] -fields @($remainingField)
                 }
-                Add-Fields -sourceObject $sourceObject.$currentField -targetObject $targetObject[$currentField] -fields @($remainingField)
-            }
-        } else {
-            if ($sourceObject.PSObject.Properties.Name -contains $field) {
-                $targetObject[$field] = $sourceObject.$field
+            } else {
+                if ($sourceObject.PSObject.Properties.Name -contains $field) {
+                    $targetObject[$field] = $sourceObject.$field
+                }
             }
         }
     }
-}
-
+    
     # Append required fields from the original request to the new JSON object
     Add-Fields -sourceObject $requestObject -targetObject $filteredJsonObject -fields $jsonFields
-
+    
     # Append the new field from the JSON response
     $filteredJsonObject["ResultID"] = $responseObject.ResultID
-
+    
     # Convert the JSON object to a string
     $filteredJsonContent = $filteredJsonObject | ConvertTo-Json
-
+    
     # Return the JSON content as the response
     $Response = [HttpResponseMessage]::new([HttpStatusCode]::OK)
     $Response.Content = [System.Net.Http.StringContent]::new($filteredJsonContent, [System.Text.Encoding]::UTF8, "application/json")
     $Response
-
+    
     Write-Host "Response has been successfully sent to the client."
 } catch {
     Write-Host "An error occurred: $_"
